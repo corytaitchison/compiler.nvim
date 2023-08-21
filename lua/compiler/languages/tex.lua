@@ -16,7 +16,7 @@ M.options = {
 function M.action(selected_option)
   local utils = require("compiler.utils")
   local overseer = require("overseer")
-  local entry_point = utils.os_path(vim.fn.getcwd() .. "/main.tex")            -- working_directory/main.tex
+  local entry_point = "'" .. utils.os_path(vim.fn.getcwd() .. "/main.tex") .. "'"
   local final_message = "--task finished--"
 
 
