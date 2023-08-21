@@ -14,9 +14,11 @@ M.options = {
 
 --- Backend - overseer tasks performed on option selected
 function M.action(selected_option)
-  local utils = require("compiler.utils")
+  -- local utils = require("compiler.utils")
   local overseer = require("overseer")
-  local entry_point = "'" .. utils.os_path(vim.fn.getcwd() .. "/main.tex") .. "'"
+  -- local entry_point = "'" .. utils.os_path(vim.fn.getcwd() .. "/main.tex") .. "'"
+  local filename = vim.fn.expand("%:t")
+  local entry_point = "'" .. vim.fn.expand("%:p") .. "'"
   local final_message = "--task finished--"
 
 
@@ -24,7 +26,7 @@ function M.action(selected_option)
     local task = overseer.new_task({
       name = "- LaTeX compiler",
       strategy = { "orchestrator",
-        tasks = {{ "shell", name = "- Build & watch project → " .. entry_point,
+        tasks = {{ "shell", name = "- Build & watch project → " .. filename,
           cmd = "latexmk -pdf -interaction=nonstopmode -synctex=1 -pvc " .. entry_point
         },},},})
     task:start()
@@ -33,7 +35,7 @@ function M.action(selected_option)
     local task = overseer.new_task({
       name = "- LaTeX compiler",
       strategy = { "orchestrator",
-        tasks = {{ "shell", name = "- Build & open project → " .. entry_point,
+        tasks = {{ "shell", name = "- Build & open project → " .. filename,
           cmd = "latexmk -pdf -interaction=nonstopmode -synctex=1 -pv " .. entry_point ..
                 " && echo '" .. final_message .. "'"
         },},},})
@@ -43,7 +45,7 @@ function M.action(selected_option)
     local task = overseer.new_task({
       name = "- LaTeX compiler",
       strategy = { "orchestrator",
-        tasks = {{ "shell", name = "- Build project → " .. entry_point,
+        tasks = {{ "shell", name = "- Build project → " .. filename,
           cmd = "latexmk -pdf -interaction=nonstopmode -synctex=1 " .. entry_point ..
                 " && echo '" .. final_message .. "'"
         },},},})
@@ -53,7 +55,7 @@ function M.action(selected_option)
     local task = overseer.new_task({
       name = "- LaTeX compiler",
       strategy = { "orchestrator",
-        tasks = {{ "shell", name = "- Clean → " .. entry_point,
+        tasks = {{ "shell", name = "- Clean → " .. filename,
           cmd = "latexmk -c" ..
                 " && echo '" .. final_message .. "'"
         },},},})
@@ -63,7 +65,7 @@ function M.action(selected_option)
     local task = overseer.new_task({
       name = "- LaTeX compiler",
       strategy = { "orchestrator",
-        tasks = {{ "shell", name = "- Deep Clean → " .. entry_point,
+        tasks = {{ "shell", name = "- Deep Clean → " .. filename,
           cmd = "latexmk -C" ..
                 " && echo '" .. final_message .. "'"
         },},},})
