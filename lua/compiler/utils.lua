@@ -2,17 +2,22 @@
 
 local M = {}
 
---- Recursively searches for files with the given name
---  in all directories under start_dir.
----@param start_dir string
----@param file_name string
----@return table files Empty table if no files found.
-function M.find_files(start_dir, file_name)
+
+---Recursively searches for files with the given name
+--- in all directories under start_dir.
+---
+--- Use this function instead of `find_files_to_compile()` if you need
+--- to operate the paths after calling the function.
+---@param start_dir string A dir path string.
+---@param file_name string A file path string.
+---@param surround boolean|nil If true, surround every returned path by "". False by default.
+---@return table files If any, a tables of files. Otherwise, a Empty table.
+function M.find_files(start_dir, file_name, surround)
   local files = {}
 
   -- Create the find command with appropriate flags for recursive searching
   local find_command
-  if package.config:sub(1, 1) == "\\" then -- Windows
+  if string.sub(package.config, 1, 1) == "\\" then -- Windows
     find_command = string.format('powershell.exe -Command "Get-ChildItem -Path \\"%s\\" -Recurse -Filter \\"%s\\" -File -Exclude \\".git\\" -ErrorAction SilentlyContinue"', start_dir, file_name)
   else -- UNIX-like systems
     find_command = string.format('find "%s" -type d -name ".git" -prune -o -type f -name "%s" -print 2>/dev/null', start_dir, file_name)
@@ -22,7 +27,11 @@ function M.find_files(start_dir, file_name)
   local pipe = io.popen(find_command, "r")
   if pipe then
     for file_path in pipe:lines() do
-      table.insert(files, file_path)
+      if surround then
+        table.insert(files, '"' .. file_path .. '"')
+      else
+        table.insert(files, file_path)
+      end
       --print("Found file:", file_path)
     end
     pipe:close()
@@ -31,52 +40,75 @@ function M.find_files(start_dir, file_name)
   return files
 end
 
---- Search recursively, starting by the directory
---- of the entry_point file. Return files matching the pattern.
+---Search recursively, starting by the directory
+---of the entry_point file. Return files matching the pattern.
+---
+---The paths returned are surrounded by "".
 ---@param entry_point string Entry point file of the program.
 ---@param pattern string File extension to search.
 ---@return string files_as_string Files separated by a space.
 ---@usage find_files_to_compile("/path/to/main.c", "*.c")
 function M.find_files_to_compile(entry_point, pattern)
   local entry_point_dir = vim.fn.fnamemodify(entry_point, ":h")
-  local files = M.find_files(entry_point_dir, pattern)
+  local files = M.find_files(entry_point_dir, pattern, true)
   local files_as_string = table.concat(files ," ")
 
   return files_as_string
 end
 
--- Parse the solution file and extract variables.
+---Parse the solution file and extract variables.
 ---@param file_path string Path of the solution file to read.
 ---@return table config A table like { {entry_point, ouptput, ..} .. }
+---The last table will only contain the solution executables like:
+---{ "/path/to/executable", ... }
 function M.parse_solution_file(file_path)
-  local file = assert(io.open(file_path, "r"))  -- Open the file in read mode
-  local config = {}  -- Initialize an empty Lua table to store the variables
-  local current_entry = nil  -- Variable to track the current entry being processed
+  local file = assert(io.open(file_path, "r"))
+  local config = {}
+  local executables = {}
+  local current_entry = nil
 
   for line in file:lines() do
-    if not (line:match("^%s*#") or line:match("^%s*$")) then -- ignore comments and empty lines
-      local entry = line:match("%[([^%]]+)%]")  -- Check if the line represents a new entry
+    if not (line:match("^%s*#") or line:match("^%s*$")) then
+      local entry = line:match("%[([^%]]+)%]")
       if entry then
-        current_entry = entry  -- Update the current entry being processed
-        config[current_entry] = {}  -- Initialize a sub-table for the current entry
+        current_entry = entry
+        config[current_entry] = {}
       else
-        local key, value = line:match("([^=]+)%s-=%s-(.+)")  -- Extract key-value pairs
+        local key, value = line:match("([^=]+)%s-=%s-(.+)")
         if key and value and current_entry then
-          value = value:gsub("^%s*[\"'](.+)[\"']%s*$", "%1")  -- Remove surrounding quotes if present
-          config[current_entry][vim.trim(key)] = vim.trim(value)  -- Store the variable in the table
+          key = vim.trim(key)
+          value = value:gsub("^%s*", ""):gsub(" *#.*", ""):gsub("^['\"](.-)['\"]$", "%1")  -- Remove inline comments and surrounding quotes
+
+          if key == "entry_point" and value:find("^%$current_buffer") then
+            value = string.gsub( -- Substitute $current_buffer by actual path
+              value, "$current_buffer", vim.api.nvim_buf_get_name(0))
+          end
+
+          if string.find(key, "executable") then
+            table.insert(executables, value)
+          else
+            config[current_entry][key] = value
+          end
         end
       end
     end
   end
 
-  file:close()  -- Close the file
-  return config  -- Return the parsed config
+  file:close()
+  config["executables"] = executables
+
+  for key, value in pairs(config) do
+    if type(value) == "table" and next(value) == nil then
+      config[key] = nil
+    end
+  end
+
+  return config
 end
 
---- Programatically require the backend for the current language.
---- This function is compatible with Unix and Windows.
----@return module language If languages/<filetype>.lua doesn't exist,
---         send a notification and return nil.
+---Programatically require the backend for the current language.
+---@return table|nil language The language backend.
+-- If ./languages/<filetype>.lua doesn't exist, return nil.
 function M.require_language(filetype)
   local local_path = debug.getinfo(1, "S").source:sub(2)
   local local_path_dir = local_path:match("(.*[/\\])")
@@ -91,16 +123,17 @@ function M.require_language(filetype)
   end
 end
 
---- Function that returns true if a file exists in physical storage
----@return bool
+---Function that returns true if a file exists in physical storage
+---@return boolean|nil exists true or false
 function M.file_exists(filename)
   local stat = vim.loop.fs_stat(filename)
   return stat and stat.type == "file"
 end
 
---- Function that returns the path of the .solution file if exists in the current
---- working directory's root, or nil otherwise.
----@return string|nil
+---Function that returns the path of the .solution file if exists in the current
+---working diectory root, or nil otherwise.
+---@return string|nil path Path of the .solution file if exists in the current
+---working diectory root, or nil otherwise.
 function M.get_solution_file()
   if M.file_exists(".solution.toml") then
     return  M.os_path(vim.fn.getcwd() .. "/.solution.toml")
@@ -111,15 +144,32 @@ function M.get_solution_file()
   end
 end
 
---- Given a string, convert 'slash' to 'inverted slash' if on windows, and vice versa on UNIX.
--- Then return the resulting string.
----@param path string
----@return string
-function M.os_path(path)
+---Given a string, convert 'slash' to 'inverted slash' if on windows, and vice versa on UNIX.
+---Then return the resulting string surrounded by "".
+---
+---This way the shell will be able to detect spaces in the path.
+---@param path string A path string.
+---@param surround boolean|nil If true, surround path by "". False by default.
+---@return string|nil,nil path A path string formatted for the current OS.
+function M.os_path(path, surround)
   if path == nil then return nil end
-  -- Get the platform-specific path separator
-  local separator = package.config:sub(1,1)
+  if surround == nil then surround = false end
+
+  local separator = string.sub(package.config, 1, 1)
+
+  if surround then
+      path = '"' .. path .. '"'
+  end
+
   return string.gsub(path, '[/\\]', separator)
+end
+
+---Returns the tests dir + a path_to_append at the end.
+---@param path_to_append string A subdirectory to append to he returned dir.
+---@return string path tests dir + path_to_append. Supports windows and unix.
+function M.get_tests_dir(path_to_append)
+  local plugin_dir = vim.fn.fnamemodify(debug.getinfo(1, "S").source:sub(2), ":p:h:h:h")
+  return M.os_path(plugin_dir .. "/tests/" .. path_to_append)
 end
 
 return M
