@@ -4,12 +4,12 @@ local M = {}
 
 --- Frontend  - options displayed on telescope
 M.options = {
-  { text = "1 - Build and watch project", value = "option1" },
-  { text = "2 - Build and open project", value = "option2" },
-  { text = "3 - Build project", value = "option3" },
-  { text = "4 - Clean", value = "option4" },
-  { text = "5 - Deep Clean", value = "option5" },
-  { text = "6 - Run Makefile", value = "option6" }
+  { text = "Build and watch project", value = "option1" },
+  { text = "Build and open project", value = "option2" },
+  { text = "Build project", value = "option3" },
+  { text = "Clean", value = "option4" },
+  { text = "Deep Clean", value = "option5" },
+  { text = "Run Makefile", value = "option6" }
 }
 
 --- Backend - overseer tasks performed on option selected
